@@ -12,7 +12,7 @@ import (
 type InsertDataset struct {
 	dialect      SQLDialect
 	clauses      exp.InsertClauses
-	isPrepared   bool
+	isPrepared   prepared
 	queryFactory exec.QueryFactory
 	err          error
 }
@@ -39,12 +39,12 @@ func Insert(table interface{}) *InsertDataset {
 // prepared: If true the dataset WILL NOT interpolate the parameters.
 func (id *InsertDataset) Prepared(prepared bool) *InsertDataset {
 	ret := id.copy(id.clauses)
-	ret.isPrepared = prepared
+	ret.isPrepared = preparedFromBool(prepared)
 	return ret
 }
 
 func (id *InsertDataset) IsPrepared() bool {
-	return id.isPrepared
+	return id.isPrepared.Bool()
 }
 
 // Sets the adapter used to serialize values and create the SQL statement
@@ -242,7 +242,12 @@ func (id *InsertDataset) AppendSQL(b sb.SQLBuilder) {
 }
 
 func (id *InsertDataset) GetAs() exp.IdentifierExpression {
-	return nil
+	return id.clauses.Alias()
+}
+
+// Sets the alias for this dataset. This is typically used when using a Dataset as MySQL upsert
+func (id *InsertDataset) As(alias string) *InsertDataset {
+	return id.copy(id.clauses.SetAlias(T(alias)))
 }
 
 func (id *InsertDataset) ReturnsColumns() bool {
@@ -257,7 +262,7 @@ func (id *InsertDataset) Executor() exec.QueryExecutor {
 }
 
 func (id *InsertDataset) insertSQLBuilder() sb.SQLBuilder {
-	buf := sb.NewSQLBuilder(id.isPrepared)
+	buf := sb.NewSQLBuilder(id.isPrepared.Bool())
 	if id.err != nil {
 		return buf.SetError(id.err)
 	}

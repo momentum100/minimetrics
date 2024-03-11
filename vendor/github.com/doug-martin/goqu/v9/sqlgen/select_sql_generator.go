@@ -15,7 +15,7 @@ type (
 	}
 	// The default adapter. This class should be used when building a new adapter. When creating a new adapter you can
 	// either override methods, or more typically update default values.
-	// See (github.com/doug-martin/goqu/adapters/postgres)
+	// See (github.com/doug-martin/goqu/dialect/postgres)
 	selectSQLGenerator struct {
 		CommonSQLGenerator
 	}
@@ -196,8 +196,23 @@ func (ssg *selectSQLGenerator) ForSQL(b sb.SQLBuilder, lockingClause exp.Lock) {
 	case exp.ForKeyShare:
 		b.Write(ssg.DialectOptions().ForKeyShareFragment)
 	}
+
+	of := lockingClause.Of()
+	if ofLen := len(of); ofLen > 0 {
+		if ofFragment := ssg.DialectOptions().OfFragment; len(ofFragment) > 0 {
+			b.Write(ofFragment)
+			for i, table := range of {
+				ssg.ExpressionSQLGenerator().Generate(b, table)
+				if i < ofLen-1 {
+					b.WriteRunes(ssg.DialectOptions().CommaRune, ssg.DialectOptions().SpaceRune)
+				}
+			}
+			b.WriteRunes(ssg.DialectOptions().SpaceRune)
+		}
+	}
+
 	// the WAIT case is the default in Postgres, and is what you get if you don't specify NOWAIT or
-	// SKIP LOCKED.  There's no special syntax for it in PG, so we don't do anything for it here
+	// SKIP LOCKED. There's no special syntax for it in PG, so we don't do anything for it here
 	switch lockingClause.WaitOption() {
 	case exp.Wait:
 		return

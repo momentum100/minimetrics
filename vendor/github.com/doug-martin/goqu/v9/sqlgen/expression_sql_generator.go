@@ -22,7 +22,7 @@ type (
 	}
 	// The default adapter. This class should be used when building a new adapter. When creating a new adapter you can
 	// either override methods, or more typically update default values.
-	// See (github.com/doug-martin/goqu/adapters/postgres)
+	// See (github.com/doug-martin/goqu/dialect/postgres)
 	expressionSQLGenerator struct {
 		dialect        string
 		dialectOptions *SQLDialectOptions
@@ -53,6 +53,10 @@ func errUnsupportedBooleanExpressionOperator(op exp.BooleanOperation) error {
 	return errors.New("boolean operator '%+v' not supported", op)
 }
 
+func errUnsupportedBitwiseExpressionOperator(op exp.BitwiseOperation) error {
+	return errors.New("bitwise operator '%+v' not supported", op)
+}
+
 func errUnsupportedRangeExpressionOperator(op exp.RangeOperation) error {
 	return errors.New("range operator %+v not supported", op)
 }
@@ -68,6 +72,8 @@ func NewExpressionSQLGenerator(dialect string, do *SQLDialectOptions) Expression
 func (esg *expressionSQLGenerator) Dialect() string {
 	return esg.dialect
 }
+
+var valuerReflectType = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
 
 func (esg *expressionSQLGenerator) Generate(b sb.SQLBuilder, val interface{}) {
 	if b.Error() != nil {
@@ -103,6 +109,13 @@ func (esg *expressionSQLGenerator) Generate(b sb.SQLBuilder, val interface{}) {
 		}
 		esg.literalTime(b, *v)
 	case driver.Valuer:
+		// See https://github.com/golang/go/commit/0ce1d79a6a771f7449ec493b993ed2a720917870
+		if rv := reflect.ValueOf(val); rv.Kind() == reflect.Ptr &&
+			rv.IsNil() &&
+			rv.Type().Elem().Implements(valuerReflectType) {
+			esg.literalNil(b)
+			return
+		}
 		dVal, err := v.Value()
 		if err != nil {
 			b.SetError(err)
@@ -161,6 +174,8 @@ func (esg *expressionSQLGenerator) expressionSQL(b sb.SQLBuilder, expression exp
 		esg.aliasedExpressionSQL(b, e)
 	case exp.BooleanExpression:
 		esg.booleanExpressionSQL(b, e)
+	case exp.BitwiseExpression:
+		esg.bitwiseExpressionSQL(b, e)
 	case exp.RangeExpression:
 		esg.rangeExpressionSQL(b, e)
 	case exp.OrderedExpression:
@@ -408,6 +423,28 @@ func (esg *expressionSQLGenerator) booleanExpressionSQL(b sb.SQLBuilder, operato
 		esg.Generate(b, rhs)
 	}
 
+	b.WriteRunes(esg.dialectOptions.RightParenRune)
+}
+
+// Generates SQL for a BitwiseExpresion (e.g. I("a").BitwiseOr(2) - > "a" | 2)
+func (esg *expressionSQLGenerator) bitwiseExpressionSQL(b sb.SQLBuilder, operator exp.BitwiseExpression) {
+	b.WriteRunes(esg.dialectOptions.LeftParenRune)
+
+	if operator.LHS() != nil {
+		esg.Generate(b, operator.LHS())
+		b.WriteRunes(esg.dialectOptions.SpaceRune)
+	}
+
+	operatorOp := operator.Op()
+	if val, ok := esg.dialectOptions.BitwiseOperatorLookup[operatorOp]; ok {
+		b.Write(val)
+	} else {
+		b.SetError(errUnsupportedBitwiseExpressionOperator(operatorOp))
+		return
+	}
+
+	b.WriteRunes(esg.dialectOptions.SpaceRune)
+	esg.Generate(b, operator.RHS())
 	b.WriteRunes(esg.dialectOptions.RightParenRune)
 }
 

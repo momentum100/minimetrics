@@ -17,7 +17,7 @@ type (
 	}
 	// The default adapter. This class should be used when building a new adapter. When creating a new adapter you can
 	// either override methods, or more typically update default values.
-	// See (github.com/doug-martin/goqu/adapters/postgres)
+	// See (github.com/doug-martin/goqu/dialect/postgres)
 	insertSQLGenerator struct {
 		CommonSQLGenerator
 	}
@@ -99,6 +99,10 @@ func (isg *insertSQLGenerator) InsertSQL(b sb.SQLBuilder, ic exp.InsertClauses) 
 		isg.insertFromSQL(b, ic.From())
 	default:
 		isg.defaultValuesSQL(b)
+	}
+	if ic.HasAlias() {
+		b.Write(isg.DialectOptions().AsFragment)
+		isg.ExpressionSQLGenerator().Generate(b, ic.Alias())
 	}
 	isg.onConflictSQL(b, ic.OnConflict())
 }

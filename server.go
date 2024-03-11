@@ -242,11 +242,11 @@ type QueryRequest struct {
 type QueryResult struct {
 	Bin   int                 `json:"bin"`
 	Time  string              `json:"time"`
-	Sum   int                 `json:"sum"`
-	Count int                 `json:"count"`
+	Sum   float64                 `json:"sum"`
+	Count float64                 `json:"count"`
 	Avg   float64             `json:"avg"`
-	Min   int                 `json:"min"`
-	Max   int                 `json:"max"`
+	Min   float64                 `json:"min"`
+	Max   float64                 `json:"max"`
 	Tags  map[string][]string `json:"-"`
 }
 
@@ -405,7 +405,7 @@ func initDb(dbFilename string) *sql.DB {
 		label text,
 		type text,
 		tags text,
-		val integer
+		val real
 	)`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_counters_label_ts ON counters (label, ts)`)
 	db.Exec(`create index if not exists idx_counters_label_type on counters (label, type);`)
@@ -491,11 +491,11 @@ type Metric struct {
 	Timestamp time.Time
 	Label     string
 	Type      string
-	Value     int
+	Value     float32
 	Tags      map[string]string
 }
 
-var reStatsd = regexp.MustCompile(`(?i)^(@(?P<timestamp>[^/]*)/)?(?P<label>[a-z0-9_\-.]+)(,(?P<tags>[^:\|]*))?(:(?P<value>-?\d+))?(\|(?P<type>[a-z]+))?$`)
+var reStatsd = regexp.MustCompile(`(?i)^(@(?P<timestamp>[^/]*)/)?(?P<label>[a-z0-9_\-.]+)(,(?P<tags>[^:\|]*))?(:(?P<value>-?[\d.]+))?(\|(?P<type>[a-z]+))?$`)
 
 func parseStatsdLine(line string) (Metric, bool) {
 	groups := make(map[string]string)
@@ -519,7 +519,8 @@ func parseStatsdLine(line string) (Metric, bool) {
 	m.Timestamp = time.Now()
 	m.Label = groups["label"]
 	m.Type = groups["type"]
-	m.Value, _ = strconv.Atoi(groups["value"])
+	val, _ := strconv.ParseFloat(groups["value"], 32)
+	m.Value = float32(val)
 	m.Tags = make(map[string]string)
 
 	for _, rawTag := range strings.Split(groups["tags"], ",") {
