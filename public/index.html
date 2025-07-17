@@ -342,8 +342,6 @@ function settingsSync(app) {
             if (settings) {
                 app.darkMode = settings.darkMode;
                 app.showSidebar = settings.showSidebar !== undefined ? settings.showSidebar : true;
-                app.resolution = settings.resolution || '1m';
-                app.from = settings.from || '-15m';
                 app.autoRefresh = settings.autoRefresh !== undefined ? settings.autoRefresh : true;
             }
         } catch (err) {
@@ -356,8 +354,6 @@ function settingsSync(app) {
             let settings = JSON.stringify({
                 darkMode: app.darkMode,
                 showSidebar: app.showSidebar,
-                resolution: app.resolution,
-                from: app.from,
                 autoRefresh: app.autoRefresh,
             });
             window.localStorage.setItem('mm_settings', settings);
@@ -369,8 +365,6 @@ function settingsSync(app) {
     importSettings();
     app.$watch('darkMode', save);
     app.$watch('showSidebar', save);
-    app.$watch('resolution', save);
-    app.$watch('from', save);
     app.$watch('autoRefresh', save);
 
     return { save, import: importSettings };
@@ -386,7 +380,10 @@ function chartLayoutSync(app) {
                     metricType: chart.metricType,
                     metric: chart.metric,
                     filters: chart.filters,
-                }))
+                })),
+                // Save time range and resolution settings
+                from: app.from,
+                resolution: app.resolution
             };
             window.localStorage.setItem('mm_chart_layout', JSON.stringify(layout));
         } catch (err) {
@@ -402,6 +399,14 @@ function chartLayoutSync(app) {
                 if (layout && layout.charts) {
                     // Set loading flag to prevent auto-saving during load
                     app.loadingLayout = true;
+                    
+                    // Restore time range and resolution settings
+                    if (layout.from) {
+                        app.from = layout.from;
+                    }
+                    if (layout.resolution) {
+                        app.resolution = layout.resolution;
+                    }
                     
                     // Clear existing charts
                     app.charts = [];
@@ -477,6 +482,18 @@ const App = Vue.extend({
                     this.layoutManager.saveLayout();
                 }
             },
+        },
+        from() {
+            // Auto-save layout when time range changes
+            if (this.layoutManager && !this.loadingLayout) {
+                this.layoutManager.saveLayout();
+            }
+        },
+        resolution() {
+            // Auto-save layout when resolution changes
+            if (this.layoutManager && !this.loadingLayout) {
+                this.layoutManager.saveLayout();
+            }
         },
     },
     async created() {
