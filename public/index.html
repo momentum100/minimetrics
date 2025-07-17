@@ -268,6 +268,11 @@
                     <button @click="updateCharts()">Refresh</button>
                 </div>
 
+                <div class="layout-options" style="display: inline-block; margin-left: 2em;">
+                    <button @click="saveCurrentLayout()" title="Save current chart layout">Save Layout</button>
+                    <button @click="clearSavedLayout()" title="Clear saved layout">Clear Layout</button>
+                </div>
+
                 <div class="darkmode-switch">
                     <label>
                         Dark mode
@@ -335,6 +340,10 @@ function settingsSync(app) {
             let settings = JSON.parse(raw);
             if (settings) {
                 app.darkMode = settings.darkMode;
+                app.showSidebar = settings.showSidebar !== undefined ? settings.showSidebar : true;
+                app.resolution = settings.resolution || '1m';
+                app.from = settings.from || '-15m';
+                app.autoRefresh = settings.autoRefresh !== undefined ? settings.autoRefresh : true;
             }
         } catch (err) {
             console.error('Error reading settings:', err);
@@ -345,6 +354,10 @@ function settingsSync(app) {
         try {
             let settings = JSON.stringify({
                 darkMode: app.darkMode,
+                showSidebar: app.showSidebar,
+                resolution: app.resolution,
+                from: app.from,
+                autoRefresh: app.autoRefresh,
             });
             window.localStorage.setItem('mm_settings', settings);
         } catch (err) {
@@ -354,8 +367,73 @@ function settingsSync(app) {
 
     importSettings();
     app.$watch('darkMode', save);
+    app.$watch('showSidebar', save);
+    app.$watch('resolution', save);
+    app.$watch('from', save);
+    app.$watch('autoRefresh', save);
 
     return { save, import: importSettings };
+};
+
+// Store and restore chart layouts
+function chartLayoutSync(app) {
+    function saveLayout() {
+        try {
+            let layout = {
+                charts: app.charts.map(chart => ({
+                    label: chart.label,
+                    metricType: chart.metricType,
+                    metric: chart.metric,
+                    filters: chart.filters,
+                }))
+            };
+            window.localStorage.setItem('mm_chart_layout', JSON.stringify(layout));
+        } catch (err) {
+            console.error('Error saving chart layout:', err);
+        }
+    }
+
+    async function loadLayout() {
+        try {
+            let raw = window.localStorage.getItem('mm_chart_layout');
+            if (raw) {
+                let layout = JSON.parse(raw);
+                if (layout && layout.charts) {
+                    // Set loading flag to prevent auto-saving during load
+                    app.loadingLayout = true;
+                    
+                    // Clear existing charts
+                    app.charts = [];
+                    
+                    // Restore charts sequentially to avoid race conditions
+                    for (let chartConfig of layout.charts) {
+                        let chart = await app.addChart({
+                            label: chartConfig.label,
+                            type: chartConfig.metricType || 'c'
+                        });
+                        chart.metric = chartConfig.metric || 'sum';
+                        chart.filters = chartConfig.filters || [];
+                    }
+                    
+                    // Clear loading flag
+                    app.loadingLayout = false;
+                }
+            }
+        } catch (err) {
+            console.error('Error loading chart layout:', err);
+            app.loadingLayout = false;
+        }
+    }
+
+    function clearLayout() {
+        try {
+            window.localStorage.removeItem('mm_chart_layout');
+        } catch (err) {
+            console.error('Error clearing chart layout:', err);
+        }
+    }
+
+    return { saveLayout, loadLayout, clearLayout };
 };
 
 
@@ -377,6 +455,8 @@ const App = Vue.extend({
             labels: [], // {label:'', type:'c'} type=statsd metric type
             labelFilter: '',
             charts: [],
+            layoutManager: null,
+            loadingLayout: false,
         };
     },
     computed: {
@@ -386,9 +466,28 @@ const App = Vue.extend({
                 .sort((a, b) => a.label.localeCompare(b.label));
         },
     },
-    created() {
+    watch: {
+        charts: {
+            deep: true,
+            handler() {
+                // Auto-save layout when charts change (metric type, filters, etc.)
+                // Don't save during layout loading to prevent race conditions
+                if (this.layoutManager && !this.loadingLayout) {
+                    this.layoutManager.saveLayout();
+                }
+            },
+        },
+    },
+    async created() {
         settingsSync(this);
-        this.addChart({label: 'minimetrics_query', type: 'ms'}).then(chart => chart.metric = 'count');
+        this.layoutManager = chartLayoutSync(this);
+        
+        // Try to load existing layout, if none exists add default chart
+        await this.layoutManager.loadLayout();
+        if (this.charts.length === 0) {
+            this.addChart({label: 'minimetrics_query', type: 'ms'}).then(chart => chart.metric = 'count');
+        }
+        
         this.refreshLabels();
         this.autoRefreshLoop();
         this.applyResizeListeners();
@@ -462,10 +561,16 @@ const App = Vue.extend({
             };
             this.charts.push(chart);
             chart.update();
+            if (this.layoutManager && !this.loadingLayout) {
+                this.layoutManager.saveLayout();
+            }
             return chart;
         },
         removeChart(chart) {
             this.charts = this.charts.filter(c => c !== chart);
+            if (this.layoutManager && !this.loadingLayout) {
+                this.layoutManager.saveLayout();
+            }
         },
         async updateCharts(charts) {
             if (!charts) {
@@ -503,6 +608,21 @@ const App = Vue.extend({
             });
 
             await Promise.all(proms);
+        },
+        saveCurrentLayout() {
+            if (this.layoutManager) {
+                this.layoutManager.saveLayout();
+            }
+        },
+        clearSavedLayout() {
+            if (this.layoutManager) {
+                this.layoutManager.clearLayout();
+            }
+        },
+        async loadSavedLayout() {
+            if (this.layoutManager) {
+                await this.layoutManager.loadLayout();
+            }
         },
     },
 });
