@@ -271,6 +271,7 @@
                 <div class="layout-options" style="display: inline-block; margin-left: 2em;">
                     <button @click="saveCurrentLayout()" title="Save current chart layout">Save Layout</button>
                     <button @click="clearSavedLayout()" title="Clear saved layout">Clear Layout</button>
+                    <button @click="clearDatabase()" title="Clear all metrics from database" style="background-color: #dc3545; color: white; margin-left: 1em;">Clear Database</button>
                 </div>
 
                 <div class="darkmode-switch">
@@ -622,6 +623,39 @@ const App = Vue.extend({
         async loadSavedLayout() {
             if (this.layoutManager) {
                 await this.layoutManager.loadLayout();
+            }
+        },
+        async clearDatabase() {
+            // Double confirmation to prevent accidental data loss
+            if (!confirm('Are you sure you want to clear ALL metrics from the database? This action cannot be undone.')) {
+                return;
+            }
+            
+            if (!confirm('This will permanently delete all your metrics data. Are you ABSOLUTELY sure?')) {
+                return;
+            }
+
+            try {
+                let response = await fetch('/data/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    let result = await response.json();
+                    alert('Database cleared successfully!');
+                    
+                    // Refresh the charts and labels after clearing
+                    await this.refreshLabels();
+                    await this.updateCharts();
+                } else {
+                    alert('Error clearing database. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error clearing database:', error);
+                alert('Error clearing database. Please check the console for details.');
             }
         },
     },

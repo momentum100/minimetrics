@@ -218,6 +218,32 @@ func httpServer(bindStr string, db *sql.DB, metrics chan string) {
 		fmt.Fprintf(w, string(resultJsonBlob))
 	})
 
+	http.HandleFunc("/data/clear", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "POST" {
+			w.WriteHeader(405)
+			w.Write([]byte("Method not allowed"))
+			return
+		}
+
+		dbLock.Lock()
+		defer dbLock.Unlock()
+
+		// Clear both tables but preserve schema, indexes, and triggers
+		_, err1 := db.Exec("DELETE FROM counters")
+		_, err2 := db.Exec("DELETE FROM labels")
+
+		if err1 != nil || err2 != nil {
+			out(logError, "Error clearing database:", err1, err2)
+			w.WriteHeader(500)
+			w.Write([]byte("Error clearing database"))
+			return
+		}
+
+		out(logInfo, "Database cleared successfully")
+		w.Header().Add("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"success": true, "message": "Database cleared successfully"}`)
+	})
+
 	out(logInfo, "Web server listening", bindStr)
 	http.ListenAndServe(bindStr, nil)
 }
